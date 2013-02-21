@@ -1,0 +1,220 @@
+<?php
+  function scribble_menu(){
+    $items = array();
+ 
+    $items['scribble'] = array(
+      'title'            => t('Scribble'),
+      'page callback'    => 'scribble_output',
+      'access callback' => 'user_is_logged_in',
+      'access arguments' => array('access content'),
+    );
+
+    $items['scribble/new'] = array ( 
+      'title'  => t('New Channel'),
+      'page callback' => 'drupal_get_form',
+      'access callback' => 'user_is_logged_in',
+      'page arguments' => array('scribble_form'),
+      'access arguments' => array('access content'),
+    );
+
+    $items['scribble/edit/%'] = array ( 
+      'title' => t('Edit Channel'),
+      'page callback' => 'drupal_get_form',
+      'access callback' => 'user_is_logged_in',
+      'page arguments' => array ( 'scribble_edit_form' ),
+      'access arguments' => array ( 'access content' ),
+    );
+
+    $items['scribble/delete/%'] = array ( 
+      'title' => t('Edit Channel'),
+      'page callback' => 'scribble_delete',
+      'access callback' => 'user_is_logged_in',
+      'access arguments' => array ( 'access content' ),
+    );
+  
+    return $items;
+  }
+
+  function scribble_delete ( ) {
+    global $user;
+    
+    if(user_access('administer')) {
+      $query = "DELETE FROM apps WHERE appID = ".arg(2)." limit 1";
+    } else {
+      $query = "DELETE FROM apps INNER JOIN assoc ON apps.appID = assoc.appID WHERE assoc.userID = ".$user->uid." AND appID= ".arg(2)." limit 1";
+    }
+    db_query ( $query );
+    drupal_set_message( t ( 'Channel deleted!' ) );
+
+    drupal_goto ( 'scribble' );
+  }
+  
+  function scribble_edit_form ( $form_id, &$form_state ) {
+    global $user;
+    
+    if(user_access('administer')) {
+      $query = "SELECT * FROM apps WHERE appID = ".arg(2)." limit 1";
+    } else {
+      $query = "SELECT * FROM apps INNER JOIN assoc ON apps.appID = assoc.appID WHERE assoc.userID = ".$user->uid." AND appID= ".arg(2)." limit 1";
+    }
+    $queryResult =  db_query($query);
+    if ($queryResult->rowCount() > 0) {
+      foreach($queryResult as $row) {
+        $form['channelname'] = array (
+          '#title' => 'Channel Name',
+          '#type' => 'textfield',
+          '#value' => $row->appName,
+        );
+
+        $form['channelscript'] = array ( 
+          '#title' => 'Channel Script',
+          '#type' => 'textarea',
+          '#rows' => 20,
+          '#value' => $row->appScript,
+        );
+
+        $form['submit_button'] = array(
+          '#type' => 'submit',
+          '#value' => t('Save'),
+        );
+      }
+    } else {
+      drupal_set_message( t ( 'Not found!' ) );
+      $form_state['redirect'] = 'scribble';
+    }  
+    return $form;
+  }
+
+  function scribble_edit_form_submit ( $form_id, &$form_state ) {
+    global $user;
+
+    $channelName = $form_state['input']['channelname'];
+    $channelScript = $form_state['input']['channelscript'];
+    drupal_set_message( t ( '@channelname saved!' , array ( '@channelname' => $channelName ) ) );
+
+    //DB Insert into apps
+    $aid = db_update ( "apps" );
+    $aid -> fields ( array (
+      'appName' => $channelName,
+      'appScript' => $channelScript,
+    ) );
+    $aid -> condition ( 'appID', arg(2), '=' );
+    $aid -> execute ( );
+
+    $form_state['redirect'] = 'scribble';
+  }
+
+  function scribble_form ( $form_id, &$form_state ) {
+
+    $form['channelname'] = array (
+      '#title' => t('Channel Name'),
+      '#type' => 'textfield',
+      '#value' => '',
+    );
+
+    $form['channelscript'] = array ( 
+      '#title' => t('Channel Script ( '.l('LUA 5.1','http://www.lua.org/manual/5.1/').' )'),
+      '#type' => 'textarea',
+      '#rows' => 20,
+      '#value' => "function init ( ) 
+
+end
+
+function onBeat ( )
+  
+end
+
+function onMessage ( uid, msg )
+  return \"\"
+end
+
+function onConnect ( uid )
+  return \"\"
+end
+
+function onDisconnect ( uid )
+  return \"\"
+end",
+    );
+
+    $form['submit_button'] = array(
+      '#type' => 'submit',
+      '#value' => t('Create'),
+    );
+  
+    return $form;
+  }
+
+  function scribble_form_validate ( $form_id, &$form_state ) {
+    
+  }
+
+  function scribble_form_submit ( $form_id, &$form_state ) {
+    global $user;
+
+    $channelName = $form_state['input']['channelname'];
+    $channelScript = $form_state['input']['channelscript'];
+    drupal_set_message( t ( '@channelname created!' , array ( '@channelname' => $channelName ) ) );
+
+    //DB Insert into apps
+    $aid = db_insert ( "apps" );
+    $aid -> fields ( array (
+      'appName' => $channelName,
+      'appChannel' => preg_replace ( "/[^a-zA-Z0-9_ %\[\]\.\(\)%&-]/s" , "", strtolower ( $channelName ).rand(10000, 99999) ),
+      'appScript' => $channelScript,
+    ) );
+    $rid = $aid -> execute ( );
+
+    $asid = db_insert ( "assoc" );
+    $asid -> fields ( array (
+      'userID' => $user->uid,
+      'appID' => $rid,
+    ) );
+    $asid -> execute ( );
+    $form_state['redirect'] = 'scribble';
+  }
+  /*
+  * Display output
+  */
+  function scribble_output() {
+    global $user;
+    header('Content-type: text/plain; charset=UTF-8');
+    header('Content-Disposition: inline');
+    
+    //Constants can't be used or they will output before template.
+
+    $form = "<table>";
+    $form .= "<tr>";
+    $form .= "<td>ID</td>";
+    $form .= "<td>Name</td>";
+    $form .= "<td>Channel</td>";
+    $form .= "<td>Code</td>";
+    $form .= "<td>Delete</td>";
+    $form .= "</tr>";
+    if(user_access('administer')) {
+      $query = "SELECT * FROM apps";
+    } else {
+      $query = "SELECT * FROM apps INNER JOIN assoc ON apps.appID = assoc.appID WHERE assoc.userID = ".$user->uid." ";
+    }
+    $queryResult =  db_query($query);
+    if ($queryResult->rowCount() > 0) {
+      foreach($queryResult as $row) {
+        $form .= "<tr>";
+        $form .= "<td>".$row->appID."</td>";
+        $form .= "<td>".$row->appName."</td>";
+        $form .= "<td>ws://".$_SERVER['SERVER_ADDR'].":1035/".$row->appChannel."</td>";
+        $form .= "<td>" . l ( 'Edit Code' , 'scribble/edit/'.$row->appID ) . "</td>";
+        $form .= "<td>" . l ( 'Delete' , 'scribble/delete/'.$row->appID ) . "</td>";
+        $form .= "</tr>";
+      }
+    } else {
+      $form .= "<tr>";
+      $form .= "<td colspan='5'>No channels created</td>";
+      $form .= "</tr>";
+    }
+    $form .= "</tr>";
+    $form .= "</table>";
+
+    return $form;
+  }
+?>

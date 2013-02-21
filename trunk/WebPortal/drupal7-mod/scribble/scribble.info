@@ -1,0 +1,6 @@
+name = scribble
+description = Scribble Channel Creater
+package = Scribble Channels
+core = 7.x
+ 
+files[] = scribble.module
